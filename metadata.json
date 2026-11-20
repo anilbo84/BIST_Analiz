@@ -1,0 +1,6 @@
+{
+  "name": "BIST Kantitatif Analiz & Sinyal Terminali",
+  "description": "Borsa İstanbul çoklu kantitatif tarama, kesişim matrisi ve algoritmik sinyal konsolidasyon terminali.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

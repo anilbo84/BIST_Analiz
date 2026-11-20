@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kantitatif Analiz & Sinyal Konsolidasyon Terminali</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: { slate: { 850: '#151e2e', 900: '#0f172a', 950: '#080d1a' } }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #080d1a; color: #e2e8f0; font-family: 'Inter', sans-serif; overflow-y: scroll; }
+        .glass-card { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.6); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .drop-zone-active { border-color: #38bdf8 !important; background: rgba(56, 189, 248, 0.08) !important; }
+        
+        /* Sorting Styles */
+        th { cursor: pointer; user-select: none; position: relative; padding-right: 20px !important; transition: all 0.2s; }
+        th:hover { background-color: rgba(56, 189, 248, 0.1); }
+        th::after { content: '\2195'; position: absolute; right: 6px; opacity: 0.3; font-size: 11px; top: 50%; transform: translateY(-50%); font-weight: normal;}
+        th.asc::after { content: '\2193'; opacity: 1; color: #38bdf8; font-weight: bold; font-size: 14px;}
+        th.desc::after { content: '\2191'; opacity: 1; color: #38bdf8; font-weight: bold; font-size: 14px;}
+        
+        /* Custom Empty State */
+        .empty-state {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 6rem 2rem; text-align: center; border: 2px dashed rgba(51, 65, 85, 0.6);
+            border-radius: 1rem; background: rgba(15, 23, 42, 0.4); margin-top: 2rem;
+        }
+
+        @media print { .no-print { display: none !important; } body { background: #fff; color: #000; } }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+    <!-- Top Header -->
+    <header class="sticky top-0 z-40 glass-card border-b border-slate-800 px-6 py-4 no-print">
+        <div class="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                    <i data-lucide="layers" class="w-6 h-6 text-white"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <h1 class="text-xl font-bold tracking-tight text-white">QUANT MASTER TERMINAL</h1>
+                        <span id="badge-date" class="hidden px-2.5 py-0.5 text-xs font-mono font-semibold rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30"></span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-0.5">Çoklu Kantitatif Tarama, Kesişim ve Algoritmik Sinyal Konsolidasyon Sistemi</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div class="relative hidden" id="search-container">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" id="global-search" placeholder="Hisse ara (Örn: AGHOL, DEVA)..." 
+                        class="bg-slate-900/90 border border-slate-700 text-sm rounded-lg pl-9 pr-4 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 w-64 transition-all">
+                </div>
+                <button onclick="clearData()" id="clear-btn" class="hidden flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-sm font-medium transition border border-rose-500/20" title="Verileri Temizle">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    <span>Sıfırla</span>
+                </button>
+                <button onclick="toggleUploadModal()" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium transition shadow-lg shadow-sky-600/20">
+                    <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                    <span>Excel Yükle</span>
+                </button>
+                <button onclick="window.print()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" title="Yazdır / PDF Kaydet" id="print-btn" style="display:none;">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Upload Panel -->
+    <div id="upload-panel" class="bg-slate-900/95 border-b border-slate-800 px-6 py-6 transition-all no-print">
+        <div class="max-w-[1600px] mx-auto">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                        <i data-lucide="folder-up" class="w-5 h-5 text-sky-400"></i> Günlük Excel Çıktılarını Sürükle & Bırak
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">FORTIS, SC-PRO, INDULTI-QUANT, PERITUS, PILANIVALIS ve AlgoDash (.xlsx) dosyalarını topluca buraya bırakabilirsiniz.</p>
+                </div>
+                <button onclick="toggleUploadModal()" class="text-slate-400 hover:text-white p-1 hidden" id="close-upload-btn">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="drop-zone" class="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center cursor-pointer hover:border-sky-500/60 transition-all bg-slate-950/50">
+                <input type="file" id="file-input" multiple accept=".xlsx,.xls" class="hidden">
+                <div class="flex flex-col items-center justify-center gap-2">
+                    <div class="w-12 h-12 rounded-full bg-sky-500/10 flex items-center justify-center text-sky-400 mb-1 shadow-[0_0_15px_rgba(56,189,248,0.2)]">
+                        <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+                    </div>
+                    <p class="text-sm font-medium text-slate-200">Dosyaları buraya sürükleyin veya <span class="text-sky-400 underline">seçmek için tıklayın</span></p>
+                </div>
+            </div>
+            <div id="file-status-bar" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mt-4"></div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-[1600px] w-full mx-auto px-6 py-6" id="main-container">
+        
+        <!-- EMPTY STATE (Shown initially) -->
+        <div id="empty-state" class="empty-state">
+            <i data-lucide="bar-chart-3" class="w-16 h-16 text-slate-600 mb-4"></i>
+            <h2 class="text-xl font-bold text-slate-300 mb-2">Henüz Veri Yüklenmedi</h2>
+            <p class="text-sm text-slate-500 max-w-md">Günlük kantitatif analiz raporunu oluşturmak için yukarıdaki alana Excel dosyalarını sürükleyip bırakın.</p>
+        </div>
+
+        <!-- REPORT CONTENT (Hidden initially) -->
+        <div id="report-content" class="hidden space-y-8">
+            <!-- Quick Navigation -->
+            <nav class="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar no-print">
+                <a href="#sec-fortis" class="px-3.5 py-2 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-800 transition whitespace-nowrap">FORTIS</a>
+                <a href="#sec-scpro" class="px-3.5 py-2 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-800 transition whitespace-nowrap">SC-PRO</a>
+                <a href="#sec-indulti" class="px-3.5 py-2 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-800 transition whitespace-nowrap">INDULTI-QUANT</a>
+                <a href="#sec-peritus" class="px-3.5 py-2 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-800 transition whitespace-nowrap">PERITUS</a>
+                <a href="#sec-pilanivalis" class="px-3.5 py-2 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-800 transition whitespace-nowrap">PILANIVALIS</a>
+                
+                <div class="w-px h-6 bg-slate-700 mx-1"></div>
+                
+                <a href="#sec-intersections" class="px-3.5 py-2 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-semibold hover:bg-amber-500/25 transition whitespace-nowrap flex items-center gap-1.5"><i data-lucide="git-merge" class="w-3.5 h-3.5"></i> FORTIS Kesişimleri</a>
+                <a href="#sec-all-common" class="px-3.5 py-2 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-xs font-semibold hover:bg-indigo-500/25 transition whitespace-nowrap flex items-center gap-1.5"><i data-lucide="layers" class="w-3.5 h-3.5"></i> Çoklu Araç Kesişimleri</a>
+                <a href="#sec-algodash" class="px-3.5 py-2 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-semibold hover:bg-emerald-500/25 transition whitespace-nowrap flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5"></i> AlgoDash Sinyalleri</a>
+            </nav>
+
+            <!-- Top KPI Grid -->
+            <div id="kpi-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"></div>
+
+            <div class="space-y-8 pt-4">
+                
+                <!-- FORTIS SECTION -->
+                <section id="sec-fortis" class="glass-card rounded-2xl overflow-hidden shadow-xl">
+                    <div class="bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <span class="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 font-mono text-xs font-bold tracking-widest">HAFTALIK</span>
+                            <h3 class="text-lg font-bold text-white tracking-wide">FORTIS</h3>
+                        </div>
+                        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                            <input type="checkbox" id="toggle-fortis-extra" onchange="renderAll()" class="rounded border-slate-700 bg-slate-900 text-sky-500 focus:ring-0 w-4 h-4">
+                            <span>MDTM ve MACD-Hull Sinyallerini Göster</span>
+                        </label>
+                    </div>
+                    <div class="p-6 space-y-6" id="content-fortis"></div>
+                </section>
+
+                <!-- SC-PRO SECTION -->
+                <section id="sec-scpro" class="glass-card rounded-2xl overflow-hidden shadow-xl">
+                    <div class="bg-gradient-to-r from-sky-500/15 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <span class="px-2.5 py-1 rounded-md bg-sky-500/20 text-sky-400 border border-sky-500/30 font-mono text-xs font-bold tracking-widest">GÜNLÜK</span>
+                            <h3 class="text-lg font-bold text-white tracking-wide">SC-PRO</h3>
+                        </div>
+                        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                            <input type="checkbox" id="toggle-sc-takip" onchange="renderAll()" class="rounded border-slate-700 bg-slate-900 text-sky-500 focus:ring-0 w-4 h-4">
+                            <span>Takip Listesini Göster</span>
+                        </label>
+                    </div>
+                    <div class="p-6 space-y-6" id="content-scpro"></div>
+                </section>
+
+                <!-- INDULTI-QUANT SECTION -->
+                <section id="sec-indulti" class="glass-card rounded-2xl overflow-hidden shadow-xl">
+                    <div class="bg-gradient-to-r from-emerald-500/15 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <span class="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono text-xs font-bold tracking-widest">GÜNLÜK</span>
+                            <h3 class="text-lg font-bold text-white tracking-wide">INDULTI-QUANT</h3>
+                        </div>
+                        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                            <input type="checkbox" id="toggle-ind-takip" onchange="renderAll()" class="rounded border-slate-700 bg-slate-900 text-sky-500 focus:ring-0 w-4 h-4">
+                            <span>Acil Pozitif & Kritik Zon Listelerini Göster</span>
+                        </label>
+                    </div>
+                    <div class="p-6 space-y-6" id="content-indulti"></div>
+                </section>
+
+                <!-- PERITUS SECTION -->
+                <section id="sec-peritus" class="glass-card rounded-2xl overflow-hidden shadow-xl">
+                    <div class="bg-gradient-to-r from-purple-500/15 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <span class="px-2.5 py-1 rounded-md bg-purple-500/20 text-purple-400 border border-purple-500/30 font-mono text-xs font-bold tracking-widest">GÜNLÜK</span>
+                            <h3 class="text-lg font-bold text-white tracking-wide">PERITUS</h3>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-slate-400">Filtre:</span>
+                            <select id="peritus-filter-mode" onchange="renderAll()" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-purple-500">
+                                <option value="smart" selected>Yön: Yukarı / Aşırı Alım</option>
+                                <option value="strict">Tam Eşleşme (Güçlü Alıcı / Aşırı Alım)</option>
+                                <option value="all">Filtresiz Tümü</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="p-6 space-y-6" id="content-peritus"></div>
+                </section>
+
+                <!-- PILANIVALIS SECTION -->
+                <section id="sec-pilanivalis" class="glass-card rounded-2xl overflow-hidden shadow-xl">
+                    <div class="bg-gradient-to-r from-rose-500/15 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800 flex items-center gap-3">
+                        <span class="px-2.5 py-1 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 font-mono text-xs font-bold tracking-widest">GÜNLÜK</span>
+                        <h3 class="text-lg font-bold text-white tracking-wide">PILANIVALIS</h3>
+                    </div>
+                    <div class="p-6 space-y-6" id="content-pilanivalis"></div>
+                </section>
+            </div>
+
+            <!-- INTERSECTIONS & ALGODASH -->
+            <div class="space-y-8 pt-10">
+                
+                <section id="sec-intersections" class="glass-card rounded-2xl overflow-hidden border border-amber-500/30 shadow-xl">
+                    <div class="bg-gradient-to-r from-amber-500/20 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800">
+                        <h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="award" class="w-5 h-5 text-amber-400"></i> FORTIS Kesişimleri</h3>
+                        <p class="text-xs text-slate-400 mt-1">FORTIS'te AL çıkıp diğer günlük uygulamaların (SC-PRO, INDULTI, PERITUS, PILANIVALIS) herhangi birinde ortak AL sinyali veren hisseler.</p>
+                    </div>
+                    <div class="p-6" id="content-fortis-intersection"></div>
+                </section>
+
+                <section id="sec-all-common" class="glass-card rounded-2xl overflow-hidden border border-indigo-500/30 shadow-xl">
+                    <div class="bg-gradient-to-r from-indigo-500/20 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800">
+                        <h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="layers" class="w-5 h-5 text-indigo-400"></i> Çoklu Araç Kesişim Matrisi</h3>
+                        <p class="text-xs text-slate-400 mt-1">5 ana uygulamanın tamamında ortak çıkanlar ve en fazla araçta (≥2 araç) sinyal üreten hisselerin dağılımı.</p>
+                    </div>
+                    <div class="p-6 space-y-6" id="content-all-common"></div>
+                </section>
+
+                <section id="sec-algodash" class="glass-card rounded-2xl overflow-hidden border border-emerald-500/30 shadow-xl">
+                    <div class="bg-gradient-to-r from-emerald-500/20 via-slate-900 to-slate-900 px-6 py-4 border-b border-slate-800">
+                        <h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="zap" class="w-5 h-5 text-emerald-400"></i> AlgoDash Sinyalleri</h3>
+                        <p class="text-xs text-slate-400 mt-1">Kantitatif araçlarda filtreye takılıp aynı zamanda AlgoDash raporunda yeni sinyal üreten hisseler ve algoritma özellikleri.</p>
+                    </div>
+                    <div class="p-6" id="content-algodash-matches"></div>
+                </section>
+
+            </div>
+        </div>
+        
+        <!-- STATIC ALGO GUIDE (Always visible) -->
+        <section id="sec-algo-guide" class="glass-card rounded-2xl overflow-hidden border border-slate-700 shadow-xl mt-12">
+            <div class="bg-slate-800 px-6 py-4 border-b border-slate-700">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="book-open" class="w-5 h-5 text-slate-300"></i> Algoritma Kılavuzu (Hap Bilgiler)</h3>
+            </div>
+            <div class="p-6" id="content-algo-guide"></div>
+        </section>
+
+    </main>
+
+    <footer class="border-t border-slate-800/80 py-6 px-6 text-center text-xs text-slate-500 mt-12">
+        Kantitatif Analiz Otomasyon & Raporlama Sistemi • Tamamen Lokal Tarayıcı Motoru İle Çalışır
+    </footer>
+
+    <!-- LOGIC & DATA -->
+    <script>
+        // Start fresh: empty predefined data structures
+        let APP_DATA = {
+            reportDate: null,
+            fortis: { al_sinyalleri: [], odak_hisseler: [], mdtm_al: [], macd_hull_al: [] },
+            scpro: { dashboard: {}, yildizlar: [], yeni_al: [], makul_al: [], takip: [] },
+            indulti: { allocation: {}, acil: [], kritik: [] },
+            peritus: { al_sinyalleri_all: [], tum_veriler_asiri_alim: [] },
+            pilanivalis: {},
+            algodash: []
+        };
+
+        const algoGuide = {
+            "BUM": { desc: "Büyük Trend Avcısı", env: "Uzun soluklu, sağlam trendlerde", logic: "Günlük dalgalanmalara aldanmaz, büyük trendi bulup taşır." },
+            "TreF": { desc: "Hacim ve Para Akışı", env: "Kurumsal alımların başladığı hisselerde", logic: "Fiyat yükselişini para girişiyle teyit eder." },
+            "MIRACULUM": { desc: "Dinamik Zararkes", env: "Stresi değişen piyasalarda", logic: "Hisse sakinken dar stop, çılgınlaşınca esnek stop kullanır." },
+            "FinSS": { desc: "Lastik Etkisi", env: "Yatay piyasalarda", logic: "Aşırı satış sonrası ilk yukarı tepkide (dönüşte) alır." },
+            "FRM": { desc: "Yataydan Çıkış", env: "Yatay kalıp aniden uyanan hisselerde", logic: "Hacimli kırılım / patlama anında işleme girer." },
+            "HSD": { desc: "Erken Uyarı", env: "Hızlı yön değiştiren piyasalarda", logic: "Trend zayıflayıp döndüğü ilk anı gecikmesiz yakalar." },
+            "Rua": { desc: "Kusursuz Fırtına", env: "Momentum patlaması yaşanan piyasalarda", logic: "Tüm göstergelerin onayladığı kusursuz kopuşu arar." },
+            "MGB-D": { desc: "Dinamik Kutu Kırılımı", env: "Silkelemelerin bol olduğu piyasalarda", logic: "Fiyat görünmez kutuyu kararlı kırınca girer." },
+            "Calculus": { desc: "Rota Bekçisi", env: "Düzenli yükseliş kanallarında", logic: "Geçmiş regresyonu baz alır, zirve aşımında girer." },
+            "PaX": { desc: "Gerçek Değer Avcısı", env: "Orta vadeli yapısal değişimlerde", logic: "İğneleri siler, gerçek merkeze yerleşince güvenir." },
+            "Abakus-Lw": { desc: "Sert Kalkan", env: "Bir anda gaza basan piyasalarda", logic: "RSI+MFI harmanlar, sert alım dalgasıyla kopunca katılır." },
+            "MaT-R": { desc: "Sıkı Takipçi", env: "Katı risk yönetimli piyasalarda", logic: "Dinamik izleyen stop koyar, dönerse acımadan satar." },
+            "F-ArazV1": { desc: "Vites Değiştiren", env: "Yatay sonrası trende giren piyasalarda", logic: "Trend varken hızlı, piyasa durgunken yavaşlar." },
+            "F-ArazV2": { desc: "Tuzak Bozucu", env: "Sahte kırılımların (silkeleme) olduğu hisselerde", logic: "V1'in şüphecisi; tuzak mı gerçek mi teyit eder." },
+            "Abakus-Sw": { desc: "Kısa Vade & Sık Satış", env: "Güçlü yükseliş momentumlarında", logic: "Kısa vade dalgaları hedefler, devasa ana yönü baz alır." },
+            "Impulse Tracker": { desc: "Volatilite Sıkışması", env: "Uzun süre dinlenip patlayan hisselerde", logic: "Daralan duvarlar (yay) şiddetle yıkılınca girer." },
+            "Frama": { desc: "Kaos Yöneticisi", env: "Kaotik hareket eden hisselerde", logic: "Fraktal dereceyi ölçer, net rota çizilince uyanır." },
+            "RMA": { desc: "Kanal Sörfü", env: "Hızlı, kısa vadeli fırsatlarda", logic: "Fiyat dar tünelin tavanını kırıp taştığında alır." },
+            "Khst": { desc: "Radar Temizleyici", env: "Asılsız haber/sarkmaların olduğu hisselerde", logic: "Sahte iğneleri/düşüşleri silerek gerçek yönü bulur." },
+            "GaussZlma": { desc: "Gecikmesiz Gözlemci", env: "Çok hızlı rallilerde", logic: "Ortalama gecikmesini sıfırlar, son 39 gün karnesine bakar." },
+            "Sc-Zlsma": { desc: "Esnek Ana Trend", env: "Derin düzeltmeli makro trendlerde", logic: "Alırken zor ikna olur, satarken düzeltme payı (esneklik) tanır." },
+            "ML-Supreme": { desc: "Yapay Zeka Rejimi", env: "Karakteri değişen hisselerde", logic: "Uyku/Patlama evresini öğrenir, stratejiyi uydurur." },
+            "Dives": { desc: "Yorgunluk Tespitçisi", env: "Trend dönüşlerini erkenden görmek için", logic: "Fiyat yükselse bile momentum yavaşlarsa fark eder." },
+            "Algebra": { desc: "Makro Dalga", env: "Aylık/Yıllık devasa yatırım trendlerinde", logic: "Günlük harekete bakmaz, devasa ortalamayı baz alır." },
+            "Agilis": { desc: "Merdiven & Kar-Al", env: "Düzenli yükselen piyasalarda", logic: "Stopu yukarı çeker, 4 farklı Kar-Al seviyesi izler." },
+            "LowPass-FFT": { desc: "Radyo Filtresi", env: "Sürekli zikzak çizen piyasalarda", logic: "Cızırtıyı (kısa vade dalgalanmayı) tıraşlar, rotayı bulur." }
+        };
+
+        let uploadedFilesStatus = { fortis: { name: '', loaded: false }, scpro: { name: '', loaded: false }, indulti: { name: '', loaded: false }, peritus: { name: '', loaded: false }, pilanivalis: { name: '', loaded: false }, algodash: { name: '', loaded: false } };
+        let sortStates = {};
+        let isDataLoaded = false;
+
+        function toggleUploadModal() {
+            document.getElementById('upload-panel').classList.toggle('hidden');
+        }
+
+        function clearData() {
+            if(confirm("Tüm yüklenmiş veriler silinecek. Onaylıyor musunuz?")) {
+                APP_DATA = { reportDate: null, fortis: { al_sinyalleri: [], odak_hisseler: [], mdtm_al: [], macd_hull_al: [] }, scpro: { dashboard: {}, yildizlar: [], yeni_al: [], makul_al: [], takip: [] }, indulti: { allocation: {}, acil: [], kritik: [] }, peritus: { al_sinyalleri_all: [], tum_veriler_asiri_alim: [] }, pilanivalis: {}, algodash: [] };
+                uploadedFilesStatus = { fortis: { name: '', loaded: false }, scpro: { name: '', loaded: false }, indulti: { name: '', loaded: false }, peritus: { name: '', loaded: false }, pilanivalis: { name: '', loaded: false }, algodash: { name: '', loaded: false } };
+                renderFileStatus();
+                renderAll();
+            }
+        }
+
+        function renderFileStatus() {
+            const labels = { fortis: 'FORTIS', scpro: 'SC-PRO', indulti: 'INDULTI', peritus: 'PERITUS', pilanivalis: 'PILANIVALIS', algodash: 'ALGODASH' };
+            document.getElementById('file-status-bar').innerHTML = Object.keys(labels).map(k => {
+                const st = uploadedFilesStatus[k];
+                return `
+                    <div class="px-3 py-2 rounded-lg border ${st.loaded ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-500'} flex items-center gap-2">
+                        <i data-lucide="${st.loaded ? 'check-circle-2' : 'circle-dashed'}" class="w-4 h-4 shrink-0"></i>
+                        <div class="truncate">
+                            <div class="text-[11px] font-bold">${labels[k]}</div>
+                            <div class="text-[10px] opacity-75 truncate">${st.name || 'Bekleniyor...'}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function handleSort(tableId, colName) {
+            if (!sortStates[tableId]) sortStates[tableId] = { col: null, dir: 'desc' };
+            const state = sortStates[tableId];
+            if (state.col === colName) {
+                state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                state.col = colName;
+                state.dir = 'asc';
+            }
+            renderAll(); 
+        }
+
+        function getSortedData(tableId, records) {
+            const state = sortStates[tableId];
+            if (!state || !state.col) return records;
+            return [...records].sort((a, b) => {
+                let vA = a[state.col]; let vB = b[state.col];
+                if (vA === '-' || vA === undefined || vA === null) vA = '';
+                if (vB === '-' || vB === undefined || vB === null) vB = '';
+                
+                let strA = String(vA).replace('%','').trim();
+                let strB = String(vB).replace('%','').trim();
+
+                const numA = parseFloat(strA); const numB = parseFloat(strB);
+                const isNumA = !isNaN(numA); const isNumB = !isNaN(numB);
+
+                let res = 0;
+                if (isNumA && isNumB) res = numA - numB;
+                else res = String(vA).localeCompare(String(vB), 'tr');
+                
+                return state.dir === 'asc' ? res : -res;
+            });
+        }
+
+        function buildTableHTML(records, highlightCol = 'Hisse', tableId = 'default', isIntersectionMatrix = false) {
+            const searchVal = (document.getElementById('global-search')?.value || '').trim().toUpperCase();
+            let filtered = records || [];
+            if (searchVal) {
+                filtered = filtered.filter(r => Object.values(r).some(v => String(v).toUpperCase().includes(searchVal)));
+            }
+            if (filtered.length === 0) return `<div class="text-xs text-slate-500 py-4 px-4 bg-slate-900/40 rounded border border-slate-800/60">Sonuç bulunamadı.</div>`;
+
+            const finalData = getSortedData(tableId, filtered);
+            const cols = Object.keys(finalData[0]);
+            const sortState = sortStates[tableId] || {};
+
+            const thead = cols.map(c => {
+                let cl = 'py-3 px-4 whitespace-nowrap hover:text-white transition';
+                if (sortState.col === c) cl += sortState.dir === 'asc' ? ' asc text-sky-400 bg-slate-800' : ' desc text-sky-400 bg-slate-800';
+                return `<th class="${cl}" onclick="handleSort('${tableId}', '${c}')">${c}</th>`;
+            }).join('');
+
+            const tbody = finalData.map(row => `
+                <tr class="hover:bg-slate-800/60 border-b border-slate-800/60 transition-colors">
+                    ${cols.map(c => {
+                        let val = row[c]; if (val === undefined || val === null || val === '') val = '-';
+                        let cClass = "py-3 px-4 whitespace-nowrap text-sm";
+                        
+                        if (c === highlightCol || c === 'Hisse Adı') {
+                            cClass += " font-mono font-bold text-sky-400";
+                        } 
+                        else if (isIntersectionMatrix && c !== 'Hisse' && c !== 'Araç Sayısı' && c !== 'Uygulamalar' && c !== 'TOPLAM ARAÇ SAYISI' && c !== 'SİNYAL VEREN UYGULAMALAR') {
+                            if (val === '-') {
+                                val = `<span class="text-slate-600">-</span>`;
+                            } else if (val.includes('✅')) {
+                                const cleanVal = val.replace('✅', '').replace(/[()]/g, '').trim();
+                                val = `<div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-emerald-500/20 flex items-center justify-center border border-emerald-500/50"><i data-lucide="check" class="w-3 h-3 text-emerald-400"></i></div><span class="text-slate-300 text-[11px] truncate max-w-[150px]">${cleanVal}</span></div>`;
+                            }
+                        }
+                        else if (c === 'Durum' || c === 'Sinyal' || c === 'Grafik Durumu') {
+                            val = `<span class="px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs">${val}</span>`;
+                        }
+                        else if (typeof val === 'number') {
+                            cClass += " font-mono";
+                        }
+                        return `<td class="${cClass}">${val}</td>`;
+                    }).join('')}
+                </tr>
+            `).join('');
+
+            return `<div class="overflow-x-auto custom-scrollbar rounded-xl border border-slate-800 text-slate-300 shadow-inner">
+                <table class="w-full text-left border-collapse"><thead class="bg-slate-900 border-b border-slate-700 font-semibold uppercase tracking-wider text-[11px] text-slate-400">${thead}</thead><tbody class="divide-y divide-slate-800/60">${tbody}</tbody></table></div>`;
+        }
+
+        function getActivePeritusRecords() {
+            const mode = document.getElementById('peritus-filter-mode')?.value || 'smart';
+            const all = APP_DATA.peritus.al_sinyalleri_all || [];
+            if (mode === 'all') return all;
+            if (mode === 'strict') return all.filter(r => {
+                const y = String(r.Yorum || '');
+                return (y.includes('F2 > F1 (Güçlü)') && y.includes('Yön: Yukarı') && y.includes('Güçlü Alıcı')) || y.includes('Aşırı Alım');
+            });
+            return all.filter(r => {
+                const y = String(r.Yorum || '');
+                return (y.includes('F2 > F1 (Güçlü)') && y.includes('Yön: Yukarı')) || y.includes('Aşırı Alım');
+            });
+        }
+
+        function getActiveAppTickers() {
+            let active = { sets: { FORTIS: new Set(), 'SC-PRO': new Set(), 'INDULTI-QUANT': new Set(), PERITUS: new Set(), PILANIVALIS: new Set() }, details: {} };
+            ['FORTIS', 'SC-PRO', 'INDULTI-QUANT', 'PERITUS', 'PILANIVALIS'].forEach(k => active.details[k] = {});
+            
+            APP_DATA.fortis.al_sinyalleri?.forEach(r => { active.sets.FORTIS.add(r.Hisse); active.details.FORTIS[r.Hisse] = 'AL Sinyalleri'; });
+            APP_DATA.fortis.odak_hisseler?.forEach(r => { active.sets.FORTIS.add(r.Hisse); active.details.FORTIS[r.Hisse] = 'Odak Hisseler'; });
+            if (document.getElementById('toggle-fortis-extra')?.checked) {
+                APP_DATA.fortis.mdtm_al?.forEach(r => { const h = r['Hisse Adı']||r.Hisse; active.sets.FORTIS.add(h); active.details.FORTIS[h] = 'MDTM AL'; });
+                APP_DATA.fortis.macd_hull_al?.forEach(r => { active.sets.FORTIS.add(r.Hisse); active.details.FORTIS[r.Hisse] = 'MACD-Hull AL'; });
+            }
+
+            APP_DATA.scpro.yildizlar?.forEach(r => { active.sets['SC-PRO'].add(r.Hisse); active.details['SC-PRO'][r.Hisse] = 'Yıldızlar'; });
+            APP_DATA.scpro.yeni_al?.forEach(r => { active.sets['SC-PRO'].add(r.Hisse); active.details['SC-PRO'][r.Hisse] = 'YENİ AL (Dönüş+Eğim)'; });
+            APP_DATA.scpro.makul_al?.forEach(r => { active.sets['SC-PRO'].add(r.Hisse); active.details['SC-PRO'][r.Hisse] = 'MAKUL AL (Destekte+Eğim)'; });
+            
+            Object.values(APP_DATA.indulti.allocation || {}).forEach((arr, idx) => arr.forEach(r => { 
+                active.sets['INDULTI-QUANT'].add(r.Hisse); 
+                let sectionName = "";
+                if(r.Sinyal && r.Sinyal.includes('AL')) sectionName = "(%20 AL (BAŞLANGIÇ ALIMI))";
+                else if(r.Sinyal && r.Sinyal.includes('%40')) sectionName = "(%40 EKLE (GÜÇLÜ EKLEME))";
+                else if(r.Sinyal && r.Sinyal.includes('%20 EKLE')) sectionName = "(%20 EKLE (TREND EKLEME))";
+                else sectionName = "AL";
+                active.details['INDULTI-QUANT'][r.Hisse] = sectionName; 
+            }));
+            
+            getActivePeritusRecords().forEach(r => { active.sets.PERITUS.add(r.Hisse); active.details.PERITUS[r.Hisse] = '(İvme Pozitif | F2 > F1 (Güçlü) | ZLSMA Üstü - Yön: Yukarı)'; });
+            
+            Object.entries(APP_DATA.pilanivalis || {}).forEach(([sh, arr]) => arr.forEach(r => { 
+                active.sets.PILANIVALIS.add(r.Hisse); 
+                active.details.PILANIVALIS[r.Hisse] = `(${sh})`; 
+            }));
+            return active;
+        }
+
+        function checkDataLoaded() {
+            let loadedCount = 0;
+            if (APP_DATA.fortis.al_sinyalleri && APP_DATA.fortis.al_sinyalleri.length > 0) loadedCount++;
+            if (APP_DATA.scpro.yildizlar && APP_DATA.scpro.yildizlar.length > 0) loadedCount++;
+            if (APP_DATA.indulti.allocation && Object.keys(APP_DATA.indulti.allocation).length > 0) loadedCount++;
+            if (APP_DATA.peritus.al_sinyalleri_all && APP_DATA.peritus.al_sinyalleri_all.length > 0) loadedCount++;
+            if (APP_DATA.pilanivalis && Object.keys(APP_DATA.pilanivalis).length > 0) loadedCount++;
+            if (APP_DATA.algodash && APP_DATA.algodash.length > 0) loadedCount++;
+            
+            isDataLoaded = loadedCount > 0;
+                           
+            if(isDataLoaded) {
+                document.getElementById('empty-state').classList.add('hidden');
+                document.getElementById('report-content').classList.remove('hidden');
+                document.getElementById('badge-date').classList.remove('hidden');
+                document.getElementById('search-container').classList.remove('hidden');
+                document.getElementById('close-upload-btn').classList.remove('hidden');
+                document.getElementById('clear-btn').classList.remove('hidden');
+                document.getElementById('print-btn').style.display = 'block';
+            } else {
+                document.getElementById('empty-state').classList.remove('hidden');
+                document.getElementById('report-content').classList.add('hidden');
+                document.getElementById('upload-panel').classList.remove('hidden');
+                document.getElementById('badge-date').classList.add('hidden');
+                document.getElementById('search-container').classList.add('hidden');
+                document.getElementById('close-upload-btn').classList.add('hidden');
+                document.getElementById('clear-btn').classList.add('hidden');
+                document.getElementById('print-btn').style.display = 'none';
+            }
+        }
+
+        function renderAll() {
+            checkDataLoaded();
+            if(!isDataLoaded) {
+                document.getElementById('content-algo-guide').innerHTML = buildTableHTML(Object.entries(algoGuide).map(([k,v]) => ({'Algoritma': k, 'Kısa Özellik': v.desc, 'Hangi Piyasada Çalışır': v.env, 'Çalışma Mantığı': v.logic})), 'Algoritma', 'tbl_guide_static');
+                if(window.lucide) lucide.createIcons();
+                return;
+            }
+
+            document.getElementById('badge-date').textContent = APP_DATA.reportDate || '-';
+            const active = getActiveAppTickers();
+            const allUnique = new Set([...active.sets.FORTIS, ...active.sets['SC-PRO'], ...active.sets['INDULTI-QUANT'], ...active.sets.PERITUS, ...active.sets.PILANIVALIS]);
+            
+            // KPI
+            document.getElementById('kpi-grid').innerHTML = [
+                {t: 'FORTIS', c: active.sets.FORTIS.size, col: 'amber', s:'Haftalık'}, {t: 'SC-PRO', c: active.sets['SC-PRO'].size, col: 'sky', s:'Günlük'},
+                {t: 'INDULTI', c: active.sets['INDULTI-QUANT'].size, col: 'emerald', s:'Günlük'}, {t: 'PERITUS', c: active.sets.PERITUS.size, col: 'purple', s:'Günlük'},
+                {t: 'PILA', c: active.sets.PILANIVALIS.size, col: 'rose', s:'Günlük'}, {t: 'TOPLAM KESİŞİM', c: allUnique.size, col: 'indigo', s:'Tüm Uygulamalar'}
+            ].map(k => `
+                <div class="glass-card p-4 rounded-xl border-l-4 border-l-${k.col}-500">
+                    <div class="text-[11px] text-slate-400 font-medium">${k.t}</div>
+                    <div class="text-2xl font-bold font-mono text-white mt-1">${k.c} <span class="text-[10px] font-sans font-normal text-slate-500">Hisse</span></div>
+                    <div class="text-[10px] text-slate-500 mt-1">${k.s}</div>
+                </div>
+            `).join('');
+
+            // FORTIS
+            let fHtml = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div><h4 class="text-sm font-semibold text-amber-400 mb-2">AL Sinyalleri</h4>${buildTableHTML(APP_DATA.fortis.al_sinyalleri, 'Hisse', 'tbl_f_al')}</div>
+                    <div><h4 class="text-sm font-semibold text-amber-400 mb-2">ODAK HİSSELER</h4>${buildTableHTML(APP_DATA.fortis.odak_hisseler, 'Hisse', 'tbl_f_odak')}</div>
+                </div>
+            `;
+            if (document.getElementById('toggle-fortis-extra')?.checked) {
+                fHtml += `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-800">
+                    <div><h4 class="text-sm font-semibold text-slate-300 mb-2">MDTM AL</h4>${buildTableHTML(APP_DATA.fortis.mdtm_al, 'Hisse Adı', 'tbl_f_mdtm')}</div>
+                    <div><h4 class="text-sm font-semibold text-slate-300 mb-2">MACD-HULL AL</h4>${buildTableHTML(APP_DATA.fortis.macd_hull_al, 'Hisse', 'tbl_f_macd')}</div>
+                </div>`;
+            }
+            document.getElementById('content-fortis').innerHTML = fHtml;
+
+            // SC-PRO
+            const dash = APP_DATA.scpro.dashboard || {};
+            let scHtml = `
+                <div class="bg-slate-900/80 p-5 rounded-xl border border-slate-800 mb-6 shadow-inner">
+                    <div class="flex justify-between items-center mb-4 pb-3 border-b border-slate-800">
+                        <span class="text-sm font-bold text-white">Dashboard Özeti</span>
+                        <span class="text-xs font-mono text-slate-400">${dash.rapor_tarihi || '-'}</span>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 text-center">
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800"><div class="text-[11px] text-slate-400">Taranan</div><div class="font-bold font-mono text-lg text-white mt-1">${dash.toplam_taranan||'-'}</div></div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-sky-500/30"><div class="text-[11px] text-sky-400">Yıldız</div><div class="font-bold font-mono text-lg text-sky-400 mt-1">${dash.yildiz_hisseler||'-'}</div></div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-emerald-500/30"><div class="text-[11px] text-emerald-400">Makul AL</div><div class="font-bold font-mono text-lg text-emerald-400 mt-1">${dash.makul_al_adayi||'-'}</div></div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-indigo-500/30"><div class="text-[11px] text-indigo-400">Momentum</div><div class="font-bold font-mono text-lg text-indigo-400 mt-1">${dash.piyasa_momentum||'-'}</div></div>
+                    </div>
+                    <h5 class="text-xs font-semibold text-slate-400 uppercase mb-2">Top Pearson Skoru</h5>
+                    ${buildTableHTML(dash.top_pearson, 'Hisse', 'tbl_sc_pearson')}
+                </div>
+                <div><h4 class="text-sm font-semibold text-sky-400 mb-2">Yıldızlar</h4>${buildTableHTML(APP_DATA.scpro.yildizlar, 'Hisse', 'tbl_sc_yildiz')}</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div><h4 class="text-sm font-semibold text-emerald-400 mb-2">YENİ AL (Dönüş+Eğim)</h4>${buildTableHTML(APP_DATA.scpro.yeni_al, 'Hisse', 'tbl_sc_yeni')}</div>
+                    <div><h4 class="text-sm font-semibold text-teal-400 mb-2">MAKUL AL (Destekte+Eğim)</h4>${buildTableHTML(APP_DATA.scpro.makul_al, 'Hisse', 'tbl_sc_makul')}</div>
+                </div>
+            `;
+            if (document.getElementById('toggle-sc-takip')?.checked) {
+                scHtml += `<div class="mt-6 pt-6 border-t border-slate-800"><h4 class="text-sm font-semibold text-slate-300 mb-2">Takip Listesi</h4>${buildTableHTML(APP_DATA.scpro.takip, 'Hisse', 'tbl_sc_takip')}</div>`;
+            }
+            document.getElementById('content-scpro').innerHTML = scHtml;
+
+            // INDULTI
+            let indHtml = Object.entries(APP_DATA.indulti.allocation || {}).map(([k,v], i) => `
+                <div><h4 class="text-sm font-semibold text-emerald-400 mb-2">${k}</h4> ${buildTableHTML(v, 'Hisse', 'tbl_ind_'+i)}</div>
+            `).join('<div class="my-6"></div>');
+            if (document.getElementById('toggle-ind-takip')?.checked) {
+                indHtml += `<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 pt-6 border-t border-slate-800">
+                    <div><h4 class="text-sm font-semibold text-amber-400 mb-2">Acil Pozitif Takip</h4>${buildTableHTML(APP_DATA.indulti.acil, 'Hisse', 'tbl_ind_acil')}</div>
+                    <div><h4 class="text-sm font-semibold text-rose-400 mb-2">Kritik Zon Takip</h4>${buildTableHTML(APP_DATA.indulti.kritik, 'Hisse', 'tbl_ind_kritik')}</div>
+                </div>`;
+            }
+            document.getElementById('content-indulti').innerHTML = indHtml;
+
+            // PERITUS
+            const perTu = APP_DATA.peritus.tum_veriler_asiri_alim || [];
+            document.getElementById('content-peritus').innerHTML = `
+                <div><h4 class="text-sm font-semibold text-purple-400 mb-2">AL Sinyalleri (Filtreli)</h4>${buildTableHTML(getActivePeritusRecords(), 'Hisse', 'tbl_per_al')}</div>
+                <div class="mt-6 pt-6 border-t border-slate-800"><h4 class="text-sm font-semibold text-slate-400 mb-2">Tüm Veriler (Sadece Aşırı Alım / Güçlü Alıcı)</h4>${buildTableHTML(perTu, 'Hisse', 'tbl_per_tum')}</div>
+            `;
+
+            // PILANIVALIS (AYI TRENDİ REMOVED)
+            document.getElementById('content-pilanivalis').innerHTML = Object.entries(APP_DATA.pilanivalis || {}).map(([k,v], i) => `
+                <div><h4 class="text-sm font-semibold text-rose-400 mb-2">${k} (Başarı ≥ %75)</h4> ${buildTableHTML(v, 'Hisse', 'tbl_pila_'+i)}</div>
+            `).join('<div class="my-6"></div>');
+
+            // INTERSECTIONS - FORTIS
+            const appNames = ['FORTIS', 'SC-PRO', 'INDULTI-QUANT', 'PERITUS', 'PILANIVALIS'];
+            const fortisMatches = [];
+            active.sets['FORTIS'].forEach(t => {
+                const others = appNames.slice(1).filter(a => active.sets[a].has(t));
+                if (others.length > 0) {
+                    fortisMatches.push({ 'Hisse': t, 'FORTIS Sinyali': active.details.FORTIS[t], 'Eşleşenler': others.join(', '), 'Diğer Detaylar': others.map(a=>`${a}: ${active.details[a][t]}`).join(' | ') });
+                }
+            });
+            document.getElementById('content-fortis-intersection').innerHTML = fortisMatches.length ? buildTableHTML(fortisMatches, 'Hisse', 'tbl_int_f') : `<div class="text-xs text-slate-500 py-4 px-4 bg-slate-900/40 rounded border border-slate-800/60">Eşleşme bulunamadı.</div>`;
+
+            // MULTI-APP
+            const freq = [];
+            const allFiveCommon = [];
+            allUnique.forEach(t => {
+                const apps = appNames.filter(a => active.sets[a].has(t));
+                if (apps.length === 5) allFiveCommon.push(t);
+                if(apps.length >= 2) {
+                    freq.push({
+                        'HİSSE': t, 
+                        'TOPLAM ARAÇ SAYISI': `${apps.length} / 5 Araç`, 
+                        'SİNYAL VEREN UYGULAMALAR': apps.join(' • '),
+                        'FORTIS': active.sets.FORTIS.has(t) ? `✅ ${active.details.FORTIS[t]}` : '-', 
+                        'SC-PRO': active.sets['SC-PRO'].has(t) ? `✅ ${active.details['SC-PRO'][t]}` : '-',
+                        'INDULTI-QUANT': active.sets['INDULTI-QUANT'].has(t) ? `✅ ${active.details['INDULTI-QUANT'][t]}` : '-', 
+                        'PERITUS': active.sets.PERITUS.has(t) ? `✅ ${active.details.PERITUS[t]}` : '-', 
+                        'PILANIVALIS': active.sets.PILANIVALIS.has(t) ? `✅ ${active.details.PILANIVALIS[t]}` : '-'
+                    });
+                }
+            });
+            
+            let freqHtml = `
+            <div class="p-5 rounded-xl border ${allFiveCommon.length > 0 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-slate-900/80 border-slate-800 text-slate-300'} flex items-center justify-between mb-6 shadow-inner">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full ${allFiveCommon.length > 0 ? 'bg-emerald-500/20' : 'bg-indigo-500/20'} flex items-center justify-center">
+                        <i data-lucide="${allFiveCommon.length > 0 ? 'check-circle-2' : 'alert-circle'}" class="w-5 h-5 ${allFiveCommon.length > 0 ? 'text-emerald-400' : 'text-indigo-400'}"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-bold text-white mb-0.5">5 Uygulamanın Tamamında (5/5) Ortak AL Sinyali Veren Hisseler:</div>
+                        <div class="text-xs text-slate-400 leading-relaxed">
+                            ${allFiveCommon.length > 0 ? `<span class="text-emerald-400 font-bold">${allFiveCommon.join(', ')}</span>` : 'Bu veri setinde 5 uygulamanın 5’inde de aynı anda AL sinyali veren hisse bulunmamaktadır. Aşağıda en az 2 ve daha fazla uygulamada ortak sinyal üreten kesişim tablosu yer almaktadır.'}
+                        </div>
+                    </div>
+                </div>
+                <span class="px-3 py-1.5 rounded font-mono text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">${allFiveCommon.length} Hisse</span>
+            </div>`;
+            
+            if (freq.length > 0) {
+                freqHtml += `<div class="mb-3 flex items-center gap-2 text-indigo-400"><i data-lucide="layers" class="w-4 h-4"></i><span class="text-sm font-bold">Çoklu Uygulama Kesişim Tablosu (En Az 2 Uygulamada Ortak Sinyal Verenler - ${freq.length} Hisse)</span></div>`;
+                freqHtml += buildTableHTML(freq, 'HİSSE', 'tbl_int_m', true);
+            } else {
+                freqHtml += `<div class="text-xs text-slate-500 py-4 px-4 bg-slate-900/40 rounded border border-slate-800/60">2 ve daha fazla uygulamada eşleşen hisse yok.</div>`;
+            }
+            document.getElementById('content-all-common').innerHTML = freqHtml;
+
+            // ALGODASH
+            let algoMatched = [];
+            const algoData = APP_DATA.algodash || [];
+            algoData.forEach(r => {
+                const h = r['Hisse Adı']; 
+                if(!allUnique.has(h)) return;
+                const alg = r['Algoritma'];
+                const guide = algoGuide[alg];
+                algoMatched.push({
+                    'Hisse': h, 'Algoritma': alg, 'Sinyal Fiyatı (TL)': r['Sinyal Fiyatı (TL)'],
+                    'Kılavuz (Özellik)': guide ? guide.desc : '-', 'Kılavuz (Piyasa)': guide ? guide.env : '-'
+                });
+            });
+            document.getElementById('content-algodash-matches').innerHTML = algoMatched.length ? buildTableHTML(algoMatched, 'Hisse', 'tbl_int_a') : `<div class="text-xs text-slate-500 py-4 px-4 bg-slate-900/40 rounded border border-slate-800/60">AlgoDash ile kesişen kantitatif sinyal yok.</div>`;
+
+            // STATIC GUIDE
+            document.getElementById('content-algo-guide').innerHTML = buildTableHTML(Object.entries(algoGuide).map(([k,v]) => ({'Algoritma': k, 'Kısa Özellik': v.desc, 'Hangi Piyasada Çalışır': v.env, 'Çalışma Mantığı': v.logic})), 'Algoritma', 'tbl_guide_static');
+
+            if(window.lucide) lucide.createIcons();
+        }
+
+        // --- FILE UPLOAD (ROBUST DRAG & DROP WITH SHEETJS) ---
+        function cleanCell(v, colName = '') {
+            if (v === undefined || v === null) return "";
+            if (v instanceof Date) {
+                const d = String(v.getDate()).padStart(2, '0');
+                const m = String(v.getMonth() + 1).padStart(2, '0');
+                const y = v.getFullYear();
+                return `${d}.${m}.${y}`;
+            }
+            if (typeof v === 'number') {
+                if (colName && String(colName).toLowerCase().includes('tarih') && v > 40000 && v < 60000) {
+                    const dateInfo = new Date(Math.round((v - 25569) * 86400 * 1000));
+                    const d = String(dateInfo.getUTCDate()).padStart(2, '0');
+                    const m = String(dateInfo.getUTCMonth() + 1).padStart(2, '0');
+                    const y = dateInfo.getUTCFullYear();
+                    return `${d}.${m}.${y}`;
+                }
+                return Number.isInteger(v) ? v : Math.round(v * 10000) / 10000;
+            }
+            return String(v).trim();
+        }
+        function sheetToCleanObjects(ws) {
+            if (!ws) return [];
+            return XLSX.utils.sheet_to_json(ws, { defval: "" }).map(row => {
+                const obj = {};
+                Object.keys(row).forEach(k => { if (!k.startsWith('__EMPTY')) obj[k.trim()] = cleanCell(row[k], k); });
+                return obj;
+            });
+        }
+
+        async function handleFiles(files) {
+            for (let i=0; i<files.length; i++) {
+                const file = files[i];
+                try {
+                    const fname = file.name.toUpperCase();
+                    const data = await file.arrayBuffer();
+                    const wb = XLSX.read(data, { type: 'array', cellDates: true });
+
+                    const dMatch = file.name.match(/(\d{2}[-.]?\d{2}[-.]?\d{4}|\d{8})/);
+                    if (dMatch) APP_DATA.reportDate = dMatch[0];
+
+                    if (fname.includes('FORTIS')) {
+                        APP_DATA.fortis.al_sinyalleri = sheetToCleanObjects(wb.Sheets['AL Sinyalleri (Fortis)']);
+                        APP_DATA.fortis.odak_hisseler = sheetToCleanObjects(wb.Sheets['ODAK HİSSELER']).filter(r => r['Kapanış Fiyatı (TL)']);
+                        APP_DATA.fortis.mdtm_al = sheetToCleanObjects(wb.Sheets['AL Sinyalleri (MDTM)']);
+                        APP_DATA.fortis.macd_hull_al = sheetToCleanObjects(wb.Sheets['MACD-HULL AL']);
+                        uploadedFilesStatus.fortis = { name: file.name, loaded: true };
+                    } else if (fname.includes('SCPRO') || fname.includes('SC-PRO')) {
+                        const dashWs = wb.Sheets['Dashboard'] || wb.Sheets[wb.SheetNames[0]];
+                        if(dashWs) {
+                            const dashAoA = XLSX.utils.sheet_to_json(dashWs, { header: 1, defval: "" });
+                            const tP = [];
+                            for (let r = 10; r < dashAoA.length; r++) {
+                                const h = cleanCell(dashAoA[r]?.[9]);
+                                if (h && h !== 'Hisse' && h !== '-') {
+                                    tP.push({ 'Hisse': h, 'Kapanış': cleanCell(dashAoA[r]?.[10]), 'Puan': cleanCell(dashAoA[r]?.[11]), 'Kanal': cleanCell(dashAoA[r]?.[12]) });
+                                }
+                            }
+                            APP_DATA.scpro.dashboard = {
+                                rapor_tarihi: String(dashAoA[1]?.[2] || '').replace('Rapor Tarihi: ', '').trim(),
+                                toplam_taranan: cleanCell(dashAoA[4]?.[1]), yildiz_hisseler: cleanCell(dashAoA[4]?.[5]),
+                                makul_al_adayi: cleanCell(dashAoA[4]?.[9]), piyasa_momentum: cleanCell(dashAoA[4]?.[13]),
+                                top_pearson: tP
+                            };
+                        }
+                        APP_DATA.scpro.yildizlar = sheetToCleanObjects(wb.Sheets['Yıldızlar']);
+                        const makulAll = sheetToCleanObjects(wb.Sheets['ALIŞ-SATIŞ MAKUL']);
+                        APP_DATA.scpro.yeni_al = makulAll.filter(r => r['Grafik Durumu'] === 'YENİ AL (Dönüş+Eğim)');
+                        APP_DATA.scpro.makul_al = makulAll.filter(r => r['Grafik Durumu'] === 'MAKUL AL (Destekte+Eğim)');
+                        APP_DATA.scpro.takip = sheetToCleanObjects(wb.Sheets['Takip Listesi']);
+                        uploadedFilesStatus.scpro = { name: file.name, loaded: true };
+                    } else if (fname.includes('INDULTI')) {
+                        const actWs = wb.Sheets['1.ALLOCATION_ACTION'] || wb.Sheets[wb.SheetNames[1]];
+                        if(actWs) {
+                            const actAoA = XLSX.utils.sheet_to_json(actWs, { header: 1, defval: "" });
+                            const iSec = { '%20 AL (BAŞLANGIÇ ALIMI)': [], '%40 EKLE (GÜÇLÜ EKLEME)': [], '%20 EKLE (TREND EKLEME)': [] };
+                            let cS = null;
+                            for (const row of actAoA) {
+                                const v0 = cleanCell(row[0]);
+                                if (String(v0).startsWith('LİSTE:')) {
+                                    const sN = String(v0).replace('LİSTE:', '').trim();
+                                    cS = (sN in iSec) ? sN : null; continue;
+                                }
+                                if (cS && v0 && v0 !== 'Hisse' && v0 !== '-') {
+                                    iSec[cS].push({ 'Hisse': v0, 'Tarih': cleanCell(row[1]), 'Sinyal': cleanCell(row[2]), 'Durum': cleanCell(row[3]), 'Detay': cleanCell(row[4]), 'Oncu': cleanCell(row[5]), 'Fast': cleanCell(row[6]), 'Slow': cleanCell(row[7]), 'Center': cleanCell(row[8]) });
+                                }
+                            }
+                            APP_DATA.indulti.allocation = iSec;
+                        }
+                        APP_DATA.indulti.acil = sheetToCleanObjects(wb.Sheets['Acil Pozitif Takip']);
+                        APP_DATA.indulti.kritik = sheetToCleanObjects(wb.Sheets['Kritik Zon Takip']);
+                        uploadedFilesStatus.indulti = { name: file.name, loaded: true };
+                    } else if (fname.includes('PERITUS')) {
+                        APP_DATA.peritus.al_sinyalleri_all = sheetToCleanObjects(wb.Sheets['AL SİNYALLERİ']);
+                        APP_DATA.peritus.tum_veriler_asiri_alim = sheetToCleanObjects(wb.Sheets['TÜM VERİLER']).filter(r => String(r.Yorum).includes('Aşırı Alım') || String(r.Yorum).includes('Güçlü Alıcı'));
+                        uploadedFilesStatus.peritus = { name: file.name, loaded: true };
+                    } else if (fname.includes('PILANIVALIS')) {
+                        const tS = ['1_YENI_AL_SON_GUN', 'BOĞA_TRENDİ_Kanal_İçi', 'GÜÇLÜ_ALIM_Bant_Üstü']; // AYI TRENDİ REMOVED
+                        const pO = {};
+                        tS.forEach(sN => {
+                            const aN = wb.SheetNames.find(n => n.toUpperCase().replace(/İ/g,'I') === sN.toUpperCase().replace(/İ/g,'I')) || sN;
+                            if (wb.Sheets[aN]) {
+                                pO[sN] = sheetToCleanObjects(wb.Sheets[aN]).filter(r => { const bo = parseFloat(r['Başarı Oranı %']); return !isNaN(bo) && bo >= 75 && bo <= 100; });
+                            } else { pO[sN] = []; }
+                        });
+                        APP_DATA.pilanivalis = pO;
+                        uploadedFilesStatus.pilanivalis = { name: file.name, loaded: true };
+                    } else if (fname.includes('ALGODASH')) {
+                        const aN = wb.SheetNames.find(n => n.includes('YENİ_SİNYALLER') || n.includes('YENI_SINYALLER')) || wb.SheetNames[0];
+                        if (wb.Sheets[aN]) APP_DATA.algodash = sheetToCleanObjects(wb.Sheets[aN]);
+                        uploadedFilesStatus.algodash = { name: file.name, loaded: true };
+                    }
+                } catch (e) {
+                    console.error("Error with file: ", file.name, e);
+                    alert(`Dosya okunurken hata: ${file.name}\nHata Detayı: ${e.message}`);
+                }
+            }
+            
+            // Re-render UI
+            renderFileStatus();
+            renderAll();
+            
+            // Auto close modal if successful and it's visible
+            if(isDataLoaded && !document.getElementById('upload-panel').classList.contains('hidden')) {
+                setTimeout(() => {
+                    document.getElementById('upload-panel').classList.add('hidden');
+                }, 1000);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // First check if data is loaded, display empty state if not
+            checkDataLoaded();
+            if(isDataLoaded) {
+                renderFileStatus();
+                renderAll();
+            }
+
+            document.getElementById('global-search').addEventListener('input', () => { renderAll(); });
+
+            const dropZone = document.getElementById('drop-zone');
+            const fileInput = document.getElementById('file-input');
+
+            dropZone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length) {
+                    handleFiles(e.target.files);
+                    e.target.value = ''; // Reset input to allow re-uploading the same file
+                }
+            });
+
+            dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drop-zone-active'); });
+            dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('drop-zone-active'); });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drop-zone-active');
+                if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+            });
+        });
+    </script>
+</body>
+</html>
